@@ -1,0 +1,205 @@
+<!-- the code provide by chatGPT -->
+
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Ngobrol Santai</title>
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+  <style>
+    #chat {
+      border: 1px solid #ddd;
+      height: 300px;
+      overflow-y: scroll;
+      margin-bottom: 10px;
+      padding: 10px;
+    }
+    .typing-indicator {
+      font-style: italic;
+      color: #888;
+    }
+    .preview-message {
+      color: #f39c12; /* Yellow color for preview messages */
+    }
+    .timestamp {
+      font-size: 0.75em;
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    
+    <h1 class="my-4">Ngobrol Santai</h1>
+    <div id="chat" class="mb-3"></div>
+    <div class="input-group mb-3">
+      <textarea id="message" class="form-control" rows="3" placeholder="Type a message..."></textarea>
+      <div class="input-group-append">
+        <button id="send" class="btn btn-primary">Send</button>
+      </div>
+    </div>
+    <button id="show-users" class="btn btn-info" data-toggle="modal" data-target="#usersModal">
+      Show Online Users (<span id="user-count">0</span>)
+    </button>
+    <div id="typing-indicator" class="typing-indicator"></div>
+    <div class="alert alert-info mt-3" role="alert">
+      Chat history is not saved. Refreshing the page will clear the chat.
+    </div>
+    <footer class="mt-3">
+      <div id="current-time"></div>
+    </footer>
+  </div>
+
+  <!-- Modal -->
+  <div class="modal fade" id="usersModal" tabindex="-1" role="dialog" aria-labelledby="usersModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="usersModalLabel">Online Users</h5>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal-body">
+            
+          <ul id="users-list" class="list-group">
+            <!-- Online users will be listed here -->
+          </ul>
+        </div>
+        
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.9.3/dist/umd/popper.min.js"></script>
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+  <script>
+      const notificationSound = new Audio('./0830.mp3'); // Ensure this path points to your sound file
+
+      const ws = new WebSocket(`wss://chattapps.azurewebsites.net/`);
+      const chat = document.getElementById('chat');
+    const messageInput = document.getElementById('message');
+    const sendButton = document.getElementById('send');
+    const typingIndicator = document.getElementById('typing-indicator');
+    const usersList = document.getElementById('users-list');
+    const currentTimeElement = document.getElementById('current-time');
+
+    let typingTimeout;
+    const startTime = new Date();
+    let name = prompt('Masukan nama kamu:');
+    
+    if (name === null || name.trim() === '') {
+      name = 'Anonymous';
+    }
+    if (Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+    
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'name', data: '', name }));
+    };
+
+    ws.onmessage = event => {
+      const { type, data, name: senderName, partialMessage, users } = JSON.parse(event.data);
+      const timestamp = new Date().toLocaleTimeString("en-US", { hour: '2-digit', minute: '2-digit' });
+
+      const p = document.createElement('p');
+      if (type === 'message') {
+        p.innerHTML = `${data} <span class="timestamp">${timestamp}</span>`;
+        p.classList.remove('preview-message');
+        // Play sound and show notification for new message
+      notificationSound.play();
+      if (document.hidden) { // Check if the page is not in focus
+       new Notification('New Message', {
+          body: data,
+          // icon: 'path/to/icon.png' // Optional: path to an icon image
+        });
+      }
+      } else if (type === 'notification') {
+        p.classList.add('font-italic');
+        p.textContent = data;
+      } else if (type === 'typing' && senderName) {
+        typingIndicator.textContent = `${senderName} is typing... ${partialMessage ? `Preview: ${partialMessage}` : ''}`;
+      } else if (type === 'update-users') {
+        updateUsersList(users);
+      }else if (!senderName){
+        typingIndicator.textContent = '';
+      }
+      chat.appendChild(p);
+      chat.scrollTop = chat.scrollHeight;
+    };
+
+    sendButton.addEventListener('click', () => {
+      sendMessage();
+    });
+
+    messageInput.addEventListener('keypress', event => {
+      if (event.key === 'Enter') {
+        if (event.shiftKey) {
+          return; // Allow new line
+        }
+        event.preventDefault(); // Prevent default Enter behavior
+        sendMessage();
+      }
+    });
+
+    messageInput.addEventListener('input', () => {
+      const partialMessage = messageInput.value;
+      clearTimeout(typingTimeout);
+      if (name !== 'undefined') {
+        ws.send(JSON.stringify({ type: 'typing', data: '', partialMessage }));
+      }
+
+      typingTimeout = setTimeout(() => {
+        if (name !== 'undefined') {
+          ws.send(JSON.stringify({ type: 'stop-typing', data: '' }));
+        }
+      }, 1000);
+    });
+
+    document.getElementById('show-users').addEventListener('click', () => {
+      ws.send(JSON.stringify({ type: 'request-users' }));
+    });
+
+    function sendMessage() {
+      const message = messageInput.value.trim();
+      if (message) {
+        ws.send(JSON.stringify({ type: 'message', data: message }));
+        messageInput.value = '';
+        typingIndicator.textContent = '';
+      }
+    }
+
+    function updateUsersList(users) {
+      usersList.innerHTML = '';
+      users.forEach(user => {
+        const li = document.createElement('li');
+        li.classList.add('list-group-item');
+        li.textContent = user;
+        usersList.appendChild(li);
+      });
+      document.getElementById('user-count').textContent = users.length;
+    }
+
+    function updateDuration() {
+    const now = new Date();
+    const duration = Math.floor((now - startTime) / 1000); // Duration in seconds
+    const minutes = Math.floor(duration / 60);
+    const seconds = duration % 60;
+    document.getElementById('current-time').textContent = `Current time: ${now.toLocaleTimeString()} | Duration: ${minutes}m ${seconds}s`;
+  }
+
+    function updateCurrentTime() {
+      updateDuration();
+    }
+
+    setInterval(updateCurrentTime, 1000);
+    updateCurrentTime();
+
+    
+  </script>
+</body>
+</html>
